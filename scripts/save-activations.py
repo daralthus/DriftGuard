@@ -1,0 +1,264 @@
+# run: python scripts/save-activations.py --config configs/gemma-2b-it.yaml --prompts data/prompts/summarize_email-context_expansion.csv --out_dir data/inference --filename summarize_email-context_expansion --print
+from __future__ import annotations
+from typing import Any
+
+import os
+import dataclasses
+import gc
+import argparse
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import orbax.checkpoint
+from jax.experimental import mesh_utils
+
+import kagglehub
+import sentencepiece as spm
+import treescope
+import penzai
+from penzai import pz
+from penzai.models import transformer
+from penzai.toolshed import token_visualization
+from penzai.toolshed import jit_wrapper
+
+from nanoid import generate
+from tqdm import tqdm
+import yaml
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+from typing import Any, List, Dict
+from pathlib import Path
+
+def load_config(config_path: str) -> dict:
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
+
+def load_model_from_checkpoint(config: dict):
+    model_name = config['model_name']
+    transformer_variant = config['transformer_variant']
+    weights_dir = kagglehub.model_download(model_name)
+    ckpt_path = os.path.join(weights_dir, config['ckpt_path'])
+
+    vocab_path = os.path.join(weights_dir, 'tokenizer.model')
+
+    vocab = spm.SentencePieceProcessor()
+    vocab.Load(vocab_path)
+
+    checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    metadata = checkpointer.metadata(ckpt_path)
+
+    n_devices = jax.local_device_count()
+    sharding_devices = mesh_utils.create_device_mesh((n_devices,))
+    sharding = jax.sharding.PositionalSharding(sharding_devices)
+    restore_args = jax.tree_util.tree_map(
+        lambda m: orbax.checkpoint.ArrayRestoreArgs(
+            restore_type=jax.Array,
+            sharding=sharding.reshape((1,) * (len(m.shape) - 1) + (n_devices,))
+        ),
+        metadata,
+    )
+    flat_params = checkpointer.restore(ckpt_path, restore_args=restore_args)
+
+    transformer_variant_module = getattr(transformer.variants, transformer_variant)
+    if transformer_variant == 'gemma':
+        model = transformer_variant_module.gemma_from_pretrained_checkpoint(
+            flat_params,
+            upcast_activations_to_float32=True
+        )
+    else:
+        raise ValueError(f"Unsupported transformer variant: {transformer_variant}")
+
+    del flat_params, restore_args, metadata, sharding, sharding_devices
+    gc.collect()
+
+    print(f"Loaded model: {model_name}")
+    return model, vocab
+
+@pz.pytree_dataclass
+class AppendActivationsFromLastToken(pz.nn.Layer):
+    saved: pz.StateVariable[Any | None]
+
+    def slice_before_target(self, array, target):
+        # find the target
+        mask = (array == target)
+        indices = pz.nx.nmap(jnp.argmax)(mask.untag("seq"))
+        found_mask = pz.nx.nmap(jnp.any)(mask.untag("seq"))
+        
+        # create a slice that's one before the target, or the last element if not found
+        def get_slice(index, found):
+            return jnp.where(
+                jnp.logical_and(found, index >= 0),
+                index - 1,
+                -1
+            )
+        
+        slices = pz.nx.nmap(get_slice)(indices, found_mask)
+        
+        # use the slice to index the array
+        return array[{"seq": slices}]
+
+    
+    def __call__(self, value: Any, /, **_unused_side_inputs) -> Any:
+        pad_id = 0
+        last_token_activations = self.slice_before_target(value, pad_id)
+
+        if self.saved.value is None:
+            self.saved.value = []
+        
+        self.saved.value.append(last_token_activations)
+                
+        return value
+
+    def finalize(self):
+        if self.saved.value:
+            stacked = pz.nx.stack(self.saved.value, axis_name='layer')
+            # reset for next run
+            self.saved.value = None
+            return stacked
+        return None
+
+class ModelSampler:
+    def __init__(self, model, vocab, batch_size: int = 2, cache_len: int = 100):
+        self.vocab = vocab
+        self.state = pz.StateVariable(value=None)
+        self.cache_len = cache_len
+
+        # prepare model variations
+        # a model to save activations
+        self.activation_collector = AppendActivationsFromLastToken(self.state)
+        patched_model  = (
+            pz.select(model)
+            .at_instances_of(transformer.model_parts.TransformerBlock)
+            .insert_after(self.activation_collector)
+        )
+        self.activation_saving_model = (
+            pz.select(patched_model)
+            .at(lambda root: root.body)
+            .apply(jit_wrapper.Jitted)
+        )
+
+        # another model to generate text completions
+        inference_model = (
+            transformer.sampling_mode.KVCachingTransformerLM.from_uncached(
+                model, cache_len=cache_len, batch_axes={"batch": batch_size},
+            )
+        )
+        self.model = (
+            pz.select(inference_model)
+            .at(lambda root: root.body)
+            .apply(jit_wrapper.Jitted)
+        )
+
+    def tokenize_batch(self, prompts: List[str], include_eos: bool = True) -> pz.types.NamedArray:
+        tokenized_prompts = []
+        for prompt in prompts:
+            tokens = [self.vocab.bos_id()] + self.vocab.EncodeAsIds(prompt)
+            if include_eos:
+                tokens.append(self.vocab.eos_id())
+            tokenized_prompts.append(tokens)
+        
+        max_len = max(len(tokens) for tokens in tokenized_prompts)
+        assert self.cache_len > max_len, 'prompt is too long for cache_len'
+        padded_prompts = [tokens + [self.vocab.pad_id()] * (max_len - len(tokens)) for tokens in tokenized_prompts]
+        
+        return pz.nx.wrap(jnp.array(padded_prompts)).tag("batch", "seq")
+
+    def forward(self, prompts: List[str], max_sampling_steps):
+        # tokenize
+        tokenized_prompts = self.tokenize_batch(prompts) # ('batch', 'seq')
+        
+        # take a single step on the model to
+        # save activations at last token 
+        # before predicting any new ones
+        # jax.profiler.start_trace(".")
+        self.activation_saving_model(tokenized_prompts)
+        activations = self.activation_collector.finalize() # ('batch', 'embedding', 'layer')
+        # jax.profiler.stop_trace()
+
+        # move off the gpu and split to arrays for easier saving
+        activations = pz.nx.nmap(lambda x: jax.device_put(x, jax.devices("cpu")[0]))(activations)
+        activations = pz.nx.unstack(activations, "batch") # (batch, ('embedding', 'layer'))
+        
+        # predict new tokens
+        preds = transformer.simple_decoding_loop.temperature_sample_pyloop(
+            self.model,
+            prompt=tokenized_prompts,
+            rng=jax.random.key(22),
+            max_sampling_steps=max_sampling_steps if max_sampling_steps else self.cache_len
+        ) # ('batch', 'seq')
+        # reset loop
+        self.model.cache_end_index.value = jnp.array(0)
+        
+        # detokenize
+        completions = self.vocab.decode(preds.unwrap('batch', 'seq').tolist()) # (batch,)
+        
+        return (activations, completions)
+
+def save_df(df, save_dir, filename):
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path=f"{save_dir}/{filename}")
+    return df
+
+def main():
+    parser = argparse.ArgumentParser(description="Load configuration from YAML and run model on prompts")
+    parser.add_argument('--config', type=str, help='Path to the config file.')
+    parser.add_argument('--prompts', type=str, help='Path to the prompts csv file.')
+    parser.add_argument('--out_dir', type=str, default='data', help='The destination directory to save the data to.')
+    parser.add_argument('--filename', type=str, help='The destination file name to save the data to.')
+    parser.add_argument('--print', action='store_true', help='Print the completions to the console.')
+    args = parser.parse_args()
+    
+    config = load_config(args.config)
+    model, vocab = load_model_from_checkpoint(config)
+    model_name = config['model_name']
+    batch_size = config['batch_size']
+    cache_len = config['cache_len']
+    sampler = ModelSampler(model, vocab, batch_size, cache_len=cache_len)
+
+    prompts_df = pd.read_csv(args.prompts)
+    prompts = prompts_df.to_dict('records')
+
+    df = pd.DataFrame(columns=['id', 'parent_id', 'prompt', 'prompt_type', 'completion', 'task_complete', 'has_prompt_injection', 'failed_for_prompt_injection', 'poison_type', 'model', 'layer_activations_metadata', 'layer_activations'])
+
+    # ensure len is a multiple of batch_size
+    len_mod = len(prompts) % batch_size
+    if len_mod != 0:
+        print(f"WARNING: len(prompts) is not a multiple of batch_size, truncating to {len(prompts) - len_mod} prompts")
+        prompts = prompts[:-len_mod]
+    
+    for i in tqdm(range(0, len(prompts), batch_size)):
+        batch = prompts[i:i + batch_size]
+        (activations, completions) = sampler.forward(map(lambda x: x["prompt"], batch), max_sampling_steps=cache_len)
+        for j in range(len(completions)):
+            row = batch[j]
+            act, compl = activations[j], completions[j]
+            prompt = row["prompt"]
+            new_data_df = pd.DataFrame([{
+                'id': row["id"],
+                'parent_id': row["parent_id"],
+                'prompt': row["prompt"],
+                'prompt_type': row["prompt_type"],
+                'has_prompt_injection': row["has_prompt_injection"],
+                'poison_type': row["poison_type"],
+                'completion': compl,
+                # 'task_complete': row.task_complete,
+                # 'failed_for_prompt_injection': row.failed_for_prompt_injection,
+                'model': model_name,
+                'layer_activations_metadata': act.named_shape,
+                'layer_activations': np.array(act.unwrap('embedding', 'layer').flatten())
+            }])
+            if args.print:
+                print(f"PROMPT: {prompt}")
+                print(f"COMPLETION: {compl}")
+            df = pd.concat([df, new_data_df], ignore_index=True)
+    
+    save_dir = args.out_dir
+    filename = f"{args.filename}.parquet"
+    print(f"Saving {len(df)} rows to {save_dir}/{filename}")
+    save_df(df, save_dir, filename)
+
+if __name__ == '__main__':
+    main()
