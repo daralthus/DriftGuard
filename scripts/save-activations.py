@@ -1,4 +1,8 @@
-# run: python scripts/save-activations.py --config configs/gemma-2b-it.yaml --prompts data/prompts/summarize_email-context_expansion.csv --out_dir data/inference --filename summarize_email-context_expansion --print
+'''
+A script to save activations from a model for each prompt in a prompts csv file.
+Run with: python scripts/save-activations.py --config configs/gemma-2b-it.yaml --prompts data/prompts/summarize_email-context_expansion.csv --out_dir data/inference --filename summarize_email-context_expansion --print
+'''
+
 from __future__ import annotations
 from typing import Any
 
@@ -30,6 +34,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from typing import Any, List, Dict
 from pathlib import Path
+
+from utils.simple_decoding_loop import temperature_sample_pyloop
 
 def load_config(config_path: str) -> dict:
     with open(config_path, 'r') as f:
@@ -120,10 +126,11 @@ class AppendActivationsFromLastToken(pz.nn.Layer):
         return None
 
 class ModelSampler:
-    def __init__(self, model, vocab, batch_size: int = 2, cache_len: int = 100):
+    def __init__(self, model, vocab, batch_size: int = 2, cache_len: int = 100, stop_tokens: List[int] = []):
         self.vocab = vocab
         self.state = pz.StateVariable(value=None)
         self.cache_len = cache_len
+        self.stop_tokens = stop_tokens
 
         # prepare model variations
         # a model to save activations
@@ -164,6 +171,23 @@ class ModelSampler:
         padded_prompts = [tokens + [self.vocab.pad_id()] * (max_len - len(tokens)) for tokens in tokenized_prompts]
         
         return pz.nx.wrap(jnp.array(padded_prompts)).tag("batch", "seq")
+    
+    def replace_after_eos(self, seq, eos = 1):
+        # find the index of the first eos in the sequence
+        index = jnp.argmax(seq == eos)
+        # and check if eos is actually in the sequence
+        exists = jnp.any(seq == eos)
+        # create a mask: 0 before the first instance, 1 after (and including)
+        mask = (jnp.arange(seq.shape[0]) >= index) & exists
+        # replace values after the first eos with eos, only if eos exists
+        return jnp.where(mask, eos, seq)
+
+    def detokenize(self, preds):
+        # strip values after eos
+        clean = pz.nx.nmap(lambda x: self.replace_after_eos(x, self.vocab.eos_id()))(preds.untag('seq')).tag('seq')
+        completions = self.vocab.decode(clean.unwrap('batch', 'seq').tolist())
+        
+        return completions
 
     def forward(self, prompts: List[str], max_sampling_steps):
         # tokenize
@@ -182,17 +206,19 @@ class ModelSampler:
         activations = pz.nx.unstack(activations, "batch") # (batch, ('embedding', 'layer'))
         
         # predict new tokens
-        preds = transformer.simple_decoding_loop.temperature_sample_pyloop(
+        preds = temperature_sample_pyloop(
             self.model,
             prompt=tokenized_prompts,
             rng=jax.random.key(22),
-            max_sampling_steps=max_sampling_steps if max_sampling_steps else self.cache_len
+            max_sampling_steps=max_sampling_steps if max_sampling_steps else self.cache_len,
+            stop_tokens=self.stop_tokens
         ) # ('batch', 'seq')
+
         # reset loop
         self.model.cache_end_index.value = jnp.array(0)
         
         # detokenize
-        completions = self.vocab.decode(preds.unwrap('batch', 'seq').tolist()) # (batch,)
+        completions = self.detokenize(preds) # (batch,)
         
         return (activations, completions)
 
@@ -216,7 +242,9 @@ def main():
     model_name = config['model_name']
     batch_size = config['batch_size']
     cache_len = config['cache_len']
-    sampler = ModelSampler(model, vocab, batch_size, cache_len=cache_len)
+    stop_tokens = config['stop_tokens']
+    prompt_template = config['prompt_template']
+    sampler = ModelSampler(model, vocab, batch_size, cache_len=cache_len, stop_tokens=stop_tokens)
 
     prompts_df = pd.read_csv(args.prompts)
     prompts = prompts_df.to_dict('records')
@@ -235,7 +263,7 @@ def main():
         for j in range(len(completions)):
             row = batch[j]
             act, compl = activations[j], completions[j]
-            prompt = row["prompt"]
+            prompt = prompt_template.format(prompt=row["prompt"]) if prompt_template else row["prompt"]
             new_data_df = pd.DataFrame([{
                 'id': row["id"],
                 'parent_id': row["parent_id"],
@@ -247,6 +275,7 @@ def main():
                 # 'task_complete': row.task_complete,
                 # 'failed_for_prompt_injection': row.failed_for_prompt_injection,
                 'model': model_name,
+                'prompt_template': prompt_template,
                 'layer_activations_metadata': act.named_shape,
                 'layer_activations': np.array(act.unwrap('embedding', 'layer').flatten())
             }])
