@@ -1,3 +1,6 @@
+# to ignore
+# .env
+
 # lightning ai project folders
 .kaggle
 .keras

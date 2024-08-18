@@ -1,0 +1,11 @@
+model_name: google/gemma/flax/2b-it
+ckpt_path: 2b-it
+transformer_variant: gemma
+batch_size: 30
+cache_len: 150
+stop_tokens: [1, 107] # the <eos> and <end_of_turn> tokens
+prompt_template: "{prompt}"
+# prompt_template: "<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
+prompts_file: data/prompts/summarize_email-multi.jsonl
+out_dir: data/inference
+out_filename: summarize_email-multi-batch30

@@ -1,6 +1,6 @@
 '''
-A script to save activations from a model for each prompt in a prompts csv file.
-Run with: python scripts/save-activations.py --config configs/gemma-2b-it.yaml --prompts data/prompts/summarize_email-context_expansion.csv --out_dir data/inference --filename summarize_email-context_expansion --print
+A script to save activations and text completions from a model for each prompt in a prompts json lines file.
+Run with: python scripts/save-activations.py --config configs/summarize_email-multi-gemma_2b_it.yaml --print
 '''
 
 from __future__ import annotations
@@ -36,6 +36,9 @@ from typing import Any, List, Dict
 from pathlib import Path
 
 from utils.simple_decoding_loop import temperature_sample_pyloop
+
+# jax.config.update("jax_debug_nans", True)
+# jax.config.update("jax_log_compiles", True)
 
 def load_config(config_path: str) -> dict:
     with open(config_path, 'r') as f:
@@ -231,14 +234,13 @@ def save_df(df, save_dir, filename):
 def main():
     parser = argparse.ArgumentParser(description="Load configuration from YAML and run model on prompts")
     parser.add_argument('--config', type=str, help='Path to the config file.')
-    parser.add_argument('--prompts', type=str, help='Path to the prompts csv file.')
-    parser.add_argument('--out_dir', type=str, default='data', help='The destination directory to save the data to.')
-    parser.add_argument('--filename', type=str, help='The destination file name to save the data to.')
     parser.add_argument('--print', action='store_true', help='Print the completions to the console.')
     args = parser.parse_args()
     
     config = load_config(args.config)
     model, vocab = load_model_from_checkpoint(config)
+    out_dir = config['out_dir']
+    out_filename = config['out_filename']
     model_name = config['model_name']
     batch_size = config['batch_size']
     cache_len = config['cache_len']
@@ -246,10 +248,10 @@ def main():
     prompt_template = config['prompt_template']
     sampler = ModelSampler(model, vocab, batch_size, cache_len=cache_len, stop_tokens=stop_tokens)
 
-    prompts_df = pd.read_csv(args.prompts)
+    prompts_df = pd.read_json(path_or_buf=config['prompts_file'], lines=True)
     prompts = prompts_df.to_dict('records')
 
-    df = pd.DataFrame(columns=['id', 'parent_id', 'prompt', 'prompt_type', 'completion', 'task_complete', 'has_prompt_injection', 'failed_for_prompt_injection', 'poison_type', 'model', 'layer_activations_metadata', 'layer_activations'])
+    df = pd.DataFrame(columns=['id', 'parent_id', 'prompt', 'prompt_type', 'completion', 'eval_completion_success_with', 'prompt_metadata', 'has_prompt_injection', 'eval_injection_success_with', 'poison_type', 'poison_metadata', 'model', 'layer_activations_metadata', 'layer_activations'])
 
     # ensure len is a multiple of batch_size
     len_mod = len(prompts) % batch_size
@@ -267,15 +269,20 @@ def main():
             new_data_df = pd.DataFrame([{
                 'id': row["id"],
                 'parent_id': row["parent_id"],
-                'prompt': row["prompt"],
                 'prompt_type': row["prompt_type"],
+
+                'prompt': row["prompt"],
+                'eval_completion_success_with': row["eval_completion_success_with"],
+                'prompt_metadata': {**row["prompt_metadata"], **{"prompt_template": prompt_template}} if row["prompt_metadata"] else {"prompt_template": prompt_template},
+
                 'has_prompt_injection': row["has_prompt_injection"],
                 'poison_type': row["poison_type"],
+                'eval_injection_success_with': row['eval_injection_success_with'],
+                'poison_metadata': row['poison_metadata'],
+                
                 'completion': compl,
-                # 'task_complete': row.task_complete,
-                # 'failed_for_prompt_injection': row.failed_for_prompt_injection,
                 'model': model_name,
-                'prompt_template': prompt_template,
+
                 'layer_activations_metadata': act.named_shape,
                 'layer_activations': np.array(act.unwrap('embedding', 'layer').flatten())
             }])
@@ -283,11 +290,15 @@ def main():
                 print(f"PROMPT: {prompt}")
                 print(f"COMPLETION: {compl}")
             df = pd.concat([df, new_data_df], ignore_index=True)
+            print(f"concated {len(df)} rows")
+            del act, compl, new_data_df
+            gc.collect()
+        del activations, completions
+        gc.collect()
     
-    save_dir = args.out_dir
-    filename = f"{args.filename}.parquet"
-    print(f"Saving {len(df)} rows to {save_dir}/{filename}")
-    save_df(df, save_dir, filename)
+    filename = f"{out_filename}.parquet"
+    print(f"Saving {len(df)} rows to {out_dir}/{filename}")
+    save_df(df, out_dir, filename)
 
 if __name__ == '__main__':
     main()
