@@ -8,4 +8,5 @@ prompt_template: "{prompt}"
 # prompt_template: "<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
 prompts_file: data/prompts/summarize_email-multi.jsonl
 out_dir: data/inference
+evals_out_dir: data/evals
 out_filename: summarize_email-multi-gemma2_2b

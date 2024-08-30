@@ -1,16 +1,16 @@
 '''
 A script to save activations and text completions from a model for each prompt in a prompts json lines file.
-Run with: python scripts/save-activations.py --config configs/summarize_email-multi-gemma_2b_it.yaml --print
+Run with: `python scripts/save-activations.py --config configs/summarize_email-multi-gemma_2b_it.yaml --print`
+Check notebooks/01-penzai-and-activation-saving.ipynb for details
 '''
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, List, Dict
 
 import os
 import dataclasses
 import gc
 import argparse
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -26,14 +26,13 @@ from penzai.models import transformer
 from penzai.toolshed import token_visualization
 from penzai.toolshed import jit_wrapper
 
-from nanoid import generate
-from tqdm import tqdm
 import yaml
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from typing import Any, List, Dict
 from pathlib import Path
+from nanoid import generate
+from tqdm import tqdm
 
 from utils.simple_decoding_loop import temperature_sample_pyloop
 
