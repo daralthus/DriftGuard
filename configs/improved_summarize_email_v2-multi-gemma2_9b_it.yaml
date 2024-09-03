@@ -1,0 +1,11 @@
+model_name: google/gemma-2/flax/gemma2-9b-it
+ckpt_path: 9b
+transformer_variant: gemma
+batch_size: 5
+cache_len: 220
+stop_tokens: [1] # the <eos>
+prompt_template: "{prompt}"
+prompts_file: data/prompts/improved_summarize_email_v2-multi.jsonl
+out_dir: data/inference
+evals_out_dir: data/evals
+out_filename: improved_summarize_email_v2-multi-gemma2_9b_it

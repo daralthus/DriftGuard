@@ -294,10 +294,10 @@ def main():
             gc.collect()
         del activations, completions
         gc.collect()
-    
-    filename = f"{out_filename}.parquet"
-    print(f"Saving {len(df)} rows to {out_dir}/{filename}")
-    save_df(df, out_dir, filename)
+        
+        filename = f"{out_filename}.parquet"
+        print(f"Saving {len(df)} rows to {out_dir}/{filename}")
+        save_df(df, out_dir, filename)
 
 if __name__ == '__main__':
     main()

@@ -1,12 +1,12 @@
-model_name: google/gemma-2/flax/gemma2-2b-it
-ckpt_path: gemma2-2b-it
+model_name: google/gemma-2/flax/gemma2-9b-it
+ckpt_path: 9b
 transformer_variant: gemma
-batch_size: 15
-cache_len: 150
+batch_size: 50
+cache_len: 120
 stop_tokens: [1, 107] # the <eos> and <end_of_turn> tokens
 # prompt_template: "{prompt}"
 prompt_template: "<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
-prompts_file: data/prompts/summarize_email-multi.jsonl
+prompts_file: data/prompts/improved_summarize_email-multi.jsonl
 out_dir: data/inference
 evals_out_dir: data/evals
-out_filename: summarize_email-multi-gemma2_2b_it
+out_filename: improved_summarize_email-multi-gemma2_9b_it

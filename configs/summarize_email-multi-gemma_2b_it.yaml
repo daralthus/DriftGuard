@@ -5,8 +5,8 @@ batch_size: 30
 cache_len: 150
 stop_tokens: [1, 107] # the <eos> and <end_of_turn> tokens
 # prompt_template: "{prompt}"
-prompt_template: "<bos><start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
+prompt_template: "<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
 prompts_file: data/prompts/summarize_email-multi.jsonl
 out_dir: data/inference
 evals_out_dir: data/evals
-out_filename: summarize_email-multi-batch30
+out_filename: summarize_email-multi-gemma_2b_it
