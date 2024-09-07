@@ -132,7 +132,7 @@ def print_results(df):
     print(f"Prompt Injection Success Percentage: {success_percentage:.2f}%")
 
 def main():
-    parser = argparse.ArgumentParser(description="Load configuration from YAML and run model on prompts")
+    parser = argparse.ArgumentParser(description="Load configuration from YAML and run model on completed prompts")
     parser.add_argument('--config', type=str, help='Path to the config file.')
     parser.add_argument('--print', action='store_true', help='Print the results to the console.')
     args = parser.parse_args()

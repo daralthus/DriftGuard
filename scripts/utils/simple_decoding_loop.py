@@ -1,5 +1,5 @@
 """
-An extended version of the Penzai temperature sampling loop that supports stop_tokens.
+An extended version of the Penzai temperature sampling loop that adds support for stop_tokens and early stopping.
 The original version is available at https://github.com/google-deepmind/penzai/blob/main/penzai/models/transformer/simple_decoding_loop.py
 """
 

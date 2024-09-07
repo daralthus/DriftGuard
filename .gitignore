@@ -1,5 +1,5 @@
 # to ignore
-# .env
+.env
 
 # lightning ai project folders
 .kaggle
