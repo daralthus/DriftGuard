@@ -16,6 +16,7 @@ Also set your Kaggle and OpenAI API keys, get a good GPU and then you ready to h
   - `prompts/`: Prompts generated in [notebooks/02-dataset-generation.ipynb](notebooks/02-dataset-generation.ipynb) using gpt-4o-mini. A mix of instructions, clean user inputs and poisoned user inputs containing prompt injection attempts.
   - `inference/`: Model completions and residual activations for the prompts.
   - `evals/`: Automated and manual evaluations of inference results.
+  - `results/`: Final results of the trained classifiers.
 - `notebooks/`: Jupyter notebooks for building up the project utilities and running experiments:
     - `01-penzai-and-activation-saving.ipynb`: A small Penzai intro (named arrays, model loading, inference, accessing activations, visualization), then defines the activation saving layer and patches the model to save intermediate activations at batch model inference.
     - `02-dataset-generation.ipynb`: Generates the synthetic datasets.

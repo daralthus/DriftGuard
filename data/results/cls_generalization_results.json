@@ -1,0 +1,62 @@
+[
+    {
+        "dataset": "data/evals/improved_summarize_email_v2-multi-gemma2_9b_it.parquet (generalization from pirate)",
+        "confusion_matrix": [
+            [
+                77,
+                48
+            ],
+            [
+                39,
+                30
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.66      0.62      0.64       125\n           1       0.38      0.43      0.41        69\n\n    accuracy                           0.55       194\n   macro avg       0.52      0.53      0.52       194\nweighted avg       0.56      0.55      0.56       194\n",
+        "roc_auc_score": 0.525391304347826
+    },
+    {
+        "dataset": "data/evals/improved_summarize_email_v2-multi-gemma2_9b_it.parquet (generalization from context_expansion)",
+        "confusion_matrix": [
+            [
+                101,
+                22
+            ],
+            [
+                3,
+                65
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.97      0.82      0.89       123\n           1       0.75      0.96      0.84        68\n\n    accuracy                           0.87       191\n   macro avg       0.86      0.89      0.86       191\nweighted avg       0.89      0.87      0.87       191\n",
+        "roc_auc_score": 0.8885102821616452
+    },
+    {
+        "dataset": "data/evals/improved_summarize_email_v2-multi-gemma2_9b_it.parquet (generalization from response_conoditioning)",
+        "confusion_matrix": [
+            [
+                87,
+                0
+            ],
+            [
+                97,
+                1
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.47      1.00      0.64        87\n           1       1.00      0.01      0.02        98\n\n    accuracy                           0.48       185\n   macro avg       0.74      0.51      0.33       185\nweighted avg       0.75      0.48      0.31       185\n",
+        "roc_auc_score": 0.5051020408163265
+    },
+    {
+        "dataset": "data/evals/improved_summarize_email_v2-multi-gemma2_9b_it.parquet (generalization from context_expansion 2 samples)",
+        "confusion_matrix": [
+            [
+                71,
+                52
+            ],
+            [
+                4,
+                94
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.95      0.58      0.72       123\n           1       0.64      0.96      0.77        98\n\n    accuracy                           0.75       221\n   macro avg       0.80      0.77      0.74       221\nweighted avg       0.81      0.75      0.74       221\n",
+        "roc_auc_score": 0.7682097229135555
+    }
+]

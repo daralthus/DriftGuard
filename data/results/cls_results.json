@@ -1,0 +1,77 @@
+[
+    {
+        "dataset": "data/evals/summarize_email-multi-gemma_2b_it.parquet",
+        "confusion_matrix": [
+            [
+                33,
+                8
+            ],
+            [
+                2,
+                5
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.94      0.80      0.87        41\n           1       0.38      0.71      0.50         7\n\n    accuracy                           0.79        48\n   macro avg       0.66      0.76      0.68        48\nweighted avg       0.86      0.79      0.81        48\n",
+        "roc_auc_score": 0.7595818815331011
+    },
+    {
+        "dataset": "data/evals/summarize_email-multi-gemma2_2b_it.parquet",
+        "confusion_matrix": [
+            [
+                30,
+                2
+            ],
+            [
+                5,
+                11
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.86      0.94      0.90        32\n           1       0.85      0.69      0.76        16\n\n    accuracy                           0.85        48\n   macro avg       0.85      0.81      0.83        48\nweighted avg       0.85      0.85      0.85        48\n",
+        "roc_auc_score": 0.8125
+    },
+    {
+        "dataset": "data/evals/improved_summarize_email-multi-gemma2_9b_it.parquet",
+        "confusion_matrix": [
+            [
+                111,
+                8
+            ],
+            [
+                12,
+                9
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.90      0.93      0.92       119\n           1       0.53      0.43      0.47        21\n\n    accuracy                           0.86       140\n   macro avg       0.72      0.68      0.70       140\nweighted avg       0.85      0.86      0.85       140\n",
+        "roc_auc_score": 0.680672268907563
+    },
+    {
+        "dataset": "data/evals/improved_summarize_email_v2-multi-gemma2_2b_it.parquet",
+        "confusion_matrix": [
+            [
+                102,
+                5
+            ],
+            [
+                20,
+                13
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.84      0.95      0.89       107\n           1       0.72      0.39      0.51        33\n\n    accuracy                           0.82       140\n   macro avg       0.78      0.67      0.70       140\nweighted avg       0.81      0.82      0.80       140\n",
+        "roc_auc_score": 0.6736052109883885
+    },
+    {
+        "dataset": "data/evals/improved_summarize_email_v2-multi-gemma2_9b_it.parquet",
+        "confusion_matrix": [
+            [
+                83,
+                4
+            ],
+            [
+                5,
+                34
+            ]
+        ],
+        "classification_report": "              precision    recall  f1-score   support\n\n           0       0.94      0.95      0.95        87\n           1       0.89      0.87      0.88        39\n\n    accuracy                           0.93       126\n   macro avg       0.92      0.91      0.92       126\nweighted avg       0.93      0.93      0.93       126\n",
+        "roc_auc_score": 0.9129089301503095
+    }
+]
